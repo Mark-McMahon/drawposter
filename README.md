@@ -6,8 +6,40 @@ shared canvas. Most players know the secret word; the imposter doesn't, and has
 to add believable strokes to a picture they can't read while the group hunts them
 down with a **live, continuous vote**.
 
-> 🚧 **Status:** design phase. The full game design lives in
-> [`requirements.md`](./requirements.md). No application code yet.
+> ✅ **Status:** playable. The full game design lives in
+> [`requirements.md`](./requirements.md); this repo now implements it as a
+> server-authoritative real-time web app.
+
+## Run it
+
+```bash
+npm install
+npm run dev      # hot-reload dev server on http://localhost:3000
+# or, for a production build:
+npm run build && npm start
+```
+
+Open the URL on each player's device (phone or laptop), create a room, and share
+the 6-digit code. `npm test` runs the game-logic + fuzzy-matcher test suite.
+
+Set `PORT` to change the port (e.g. `PORT=8080 npm start`).
+
+## How it's built
+
+- **Server-authoritative** (`src/`): the secret word, roles, votes and the
+  execution threshold all live on the server. State is redacted **per recipient**
+  before being sent, so the imposter's client literally never receives the word
+  (`src/views.ts`) — it can't be recovered via dev tools.
+- **Real-time** over a single WebSocket; the server broadcasts a fresh redacted
+  snapshot to every player on each change (`src/server.ts`).
+- **Game engine** (`src/room.ts`) is transport-agnostic and time-injected, so the
+  whole rules set — strict-rotation turns + per-turn timer, continuous live
+  voting, instant >½ execution, the steal-the-win guess, the disconnect guard,
+  2-imposter continuation, and scoring — is covered by deterministic unit tests
+  (`test/run.ts`).
+- **Client** (`public/`) is dependency-free vanilla JS: a `<canvas>` for stroke
+  capture, a live public vote tally, the role panel, and the end-of-round reveal
+  with a saveable picture and running scoreboard.
 
 ## The pitch
 
@@ -28,7 +60,7 @@ conditions, settings, and edge cases.
 ## Roadmap
 
 - [x] Game design / rules spec
-- [ ] Category word packs (with hand-paired decoys)
-- [ ] Screen-by-screen UX flow (lobby → draw/vote → reveal)
-- [ ] Tech stack & architecture (server-authoritative real-time)
-- [ ] Implementation
+- [x] Category word packs (with hand-paired decoys)
+- [x] Screen-by-screen UX flow (lobby → draw/vote → reveal)
+- [x] Tech stack & architecture (server-authoritative real-time)
+- [x] Implementation

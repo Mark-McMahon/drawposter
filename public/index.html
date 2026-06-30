@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>drawposter</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%232f6fed'/><text x='8' y='12' font-size='11' font-family='Trebuchet MS,sans-serif' font-weight='bold' fill='white' text-anchor='middle'>d</text></svg>" />
+</head>
+<body>
+  <div id="app">
+    <!-- HOME -->
+    <section id="home" class="screen">
+      <div class="card home-card">
+        <h1 class="logo"><span class="a">d</span><span class="b">r</span><span class="c">a</span><span class="d">w</span><span class="a">p</span><span class="b">o</span><span class="c">s</span><span class="d">t</span><span class="a">e</span><span class="b">r</span></h1>
+        <p class="tagline">One stroke per clue. Find the imposter.</p>
+        <label class="field">
+          <span>Your name</span>
+          <input id="nameInput" type="text" maxlength="20" placeholder="e.g. Sam" autocomplete="off" />
+        </label>
+        <button id="createBtn" class="btn primary big">Create room</button>
+        <div class="divider"><span>or join</span></div>
+        <div class="join-row">
+          <input id="codeInput" type="text" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="off" />
+          <button id="joinBtn" class="btn">Join</button>
+        </div>
+        <p id="homeError" class="error"></p>
+      </div>
+      <footer class="home-foot">Open this page on each player's device. 3–12 players.</footer>
+    </section>
+
+    <!-- GAME (lobby / playing / guessing / reveal all render here) -->
+    <section id="game" class="screen hidden">
+      <header class="topbar">
+        <div class="room-meta">
+          <span class="room-code">Room <b id="roomCode">------</b></span>
+          <button id="copyBtn" class="btn tiny ghost">copy</button>
+        </div>
+        <div id="roleBadge" class="role-badge"></div>
+        <button id="leaveBtn" class="btn tiny ghost">leave</button>
+      </header>
+
+      <div id="banner" class="banner hidden"></div>
+
+      <main id="main"></main>
+    </section>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
