@@ -28,6 +28,21 @@ const RATE_REFILL_PER_SEC = 20;
 // so it stops costing us parse/CPU at all.
 const MAX_STRIKES = 200;
 
+// ---------- origin lock ----------
+// When the ORIGIN_SECRET env var is set, every request must carry it in the
+// X-Origin-Secret header. Cloudflare injects that header (via a Transform Rule)
+// on traffic it proxies, so a request hitting the raw *.onrender.com URL
+// directly — bypassing Cloudflare's DDoS/rate-limit protection — is rejected.
+// Unset = no enforcement, so local dev and the pre-Cloudflare deploy keep
+// working unchanged. Read at request time so it can be toggled without a rebuild.
+const HEALTH_PATH = '/healthz'; // exempt so Render's health check still passes
+
+function originAllowed(req: http.IncomingMessage): boolean {
+  const secret = process.env.ORIGIN_SECRET ?? '';
+  if (!secret) return true; // enforcement disabled
+  return req.headers['x-origin-secret'] === secret;
+}
+
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -57,6 +72,19 @@ export function createAppServer(): { httpServer: http.Server; manager: RoomManag
 
 const httpServer = http.createServer((req, res) => {
   const urlPath = decodeURIComponent((req.url ?? '/').split('?')[0]);
+
+  // Health check is always allowed (Render probes the origin directly, with no
+  // Cloudflare header) and returns before any file I/O.
+  if (urlPath === HEALTH_PATH) {
+    res.writeHead(200, { 'Content-Type': 'text/plain' }).end('ok');
+    return;
+  }
+  // Reject anything that didn't come through Cloudflare (when the lock is on).
+  if (!originAllowed(req)) {
+    res.writeHead(403).end('Forbidden');
+    return;
+  }
+
   let rel = urlPath === '/' ? '/index.html' : urlPath;
   // prevent path traversal
   const filePath = path.normalize(path.join(PUBLIC_DIR, rel));
@@ -86,7 +114,12 @@ const httpServer = http.createServer((req, res) => {
 // ---------- websocket game protocol ----------
 
 const manager = new RoomManager();
-const wss = new WebSocketServer({ server: httpServer, maxPayload: MAX_PAYLOAD });
+const wss = new WebSocketServer({
+  server: httpServer,
+  maxPayload: MAX_PAYLOAD,
+  // Reject a bypassing upgrade during the handshake (401) so it never opens.
+  verifyClient: (info: { req: http.IncomingMessage }) => originAllowed(info.req),
+});
 
 const conns = new Map<WebSocket, Conn>();
 // reverse index so we can broadcast a room's state to all its sockets
@@ -127,6 +160,8 @@ function detachSocketFromRoom(ws: WebSocket, code: string) {
 }
 
 wss.on('connection', (ws) => {
+  // The origin lock is enforced in verifyClient (handshake), so any connection
+  // that reaches here already passed it.
   const conn: Conn = {
     ws,
     code: null,

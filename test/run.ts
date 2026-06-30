@@ -285,6 +285,45 @@ async function integrationTests() {
   eq(manager.size(), 0, 'room cleaned up on disconnect');
 
   await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+
+  // --- origin lock (the Cloudflare bypass guard) ---
+  section('server guard: origin secret blocks Cloudflare bypass');
+  process.env.ORIGIN_SECRET = 'test-secret';
+  const srv2 = createAppServer();
+  await new Promise<void>((resolve) => srv2.httpServer.listen(0, '127.0.0.1', resolve));
+  const p2 = (srv2.httpServer.address() as AddressInfo).port;
+  const base = `http://127.0.0.1:${p2}`;
+
+  const status = async (path: string, headers: Record<string, string> = {}) => {
+    const r = await fetch(base + path, { headers });
+    await r.text();
+    return r.status;
+  };
+  eq(await status('/healthz'), 200, 'health check exempt (no header needed)');
+  eq(await status('/'), 403, 'HTTP without secret is forbidden');
+  eq(await status('/', { 'x-origin-secret': 'wrong' }), 403, 'wrong secret forbidden');
+  eq(await status('/', { 'x-origin-secret': 'test-secret' }), 200, 'correct secret allowed');
+
+  // WS upgrade without the secret must be rejected.
+  const wsBlocked = new WebSocket(`ws://127.0.0.1:${p2}`);
+  const blockedClosed = await new Promise<boolean>((resolve) => {
+    wsBlocked.on('open', () => resolve(false)); // should NOT open cleanly
+    wsBlocked.on('close', () => resolve(true));
+    wsBlocked.on('error', () => resolve(true));
+  });
+  ok(blockedClosed, 'WS upgrade without secret is rejected');
+
+  // WS upgrade WITH the secret connects.
+  const wsOk = new WebSocket(`ws://127.0.0.1:${p2}`, { headers: { 'x-origin-secret': 'test-secret' } });
+  const okOpened = await new Promise<boolean>((resolve) => {
+    wsOk.on('open', () => resolve(true));
+    wsOk.on('error', () => resolve(false));
+  });
+  ok(okOpened, 'WS upgrade with secret connects');
+  wsOk.close();
+
+  delete process.env.ORIGIN_SECRET;
+  await new Promise<void>((resolve) => srv2.httpServer.close(() => resolve()));
 }
 
 // ============================================================

@@ -6,6 +6,12 @@ let state = null;       // latest StateView from server
 let myId = null;
 let myCode = null;
 let reconnectTimer = null;
+let pingTimer = null;
+
+// Cloudflare drops a proxied WebSocket after ~100s idle, so we send a heartbeat
+// well inside that window. The server replies {t:'pong'}; the traffic in either
+// direction is what keeps the connection from being reaped.
+const PING_INTERVAL_MS = 35_000;
 
 function wsUrl() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -16,6 +22,8 @@ function connect(onOpen) {
   ws = new WebSocket(wsUrl());
   ws.addEventListener('open', () => {
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    if (pingTimer) clearInterval(pingTimer);
+    pingTimer = setInterval(() => send({ t: 'ping' }), PING_INTERVAL_MS);
     if (onOpen) onOpen();
   });
   ws.addEventListener('message', (ev) => {
@@ -24,6 +32,7 @@ function connect(onOpen) {
     handleServer(msg);
   });
   ws.addEventListener('close', () => {
+    if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
     if (myCode) toast('Connection lost — reconnecting…', true);
   });
 }
