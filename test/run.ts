@@ -1,6 +1,10 @@
 // Lightweight test runner (no framework). Run with: npm test
+import { AddressInfo } from 'net';
+import { WebSocket } from 'ws';
 import { Room, Scheduler } from '../src/room';
 import { matchGuess } from '../src/fuzzy';
+import { TokenBucket } from '../src/ratelimit';
+import { createAppServer } from '../src/server';
 import { Player } from '../src/types';
 
 // ---- tiny assert harness ----
@@ -224,5 +228,68 @@ section("secret word is never on the imposter's view");
 }
 
 // ============================================================
-console.log(`\n${failed === 0 ? '✓ all green' : '✗ failures'}: ${passed} passed, ${failed} failed`);
-if (failed > 0) process.exit(1);
+section('rate limiter: token bucket');
+{
+  let clock = 0;
+  const bucket = new TokenBucket(5, 10, () => clock); // cap 5, refill 10/sec
+  let allowed = 0;
+  for (let k = 0; k < 5; k++) if (bucket.take()) allowed++;
+  eq(allowed, 5, 'first 5 within capacity allowed');
+  ok(!bucket.take(), '6th over capacity blocked');
+  clock += 100; // 0.1s -> +1 token
+  ok(bucket.take(), 'one token refilled after 0.1s');
+  ok(!bucket.take(), 'and immediately empty again');
+  clock += 10_000; // long idle
+  let burst = 0;
+  for (let k = 0; k < 10; k++) if (bucket.take()) burst++;
+  eq(burst, 5, 'refill is capped at capacity (no unbounded accrual)');
+}
+
+// ============================================================
+// Integration: transport-level guards in server.ts. Boot a real server on an
+// ephemeral port and drive it with a ws client.
+async function integrationTests() {
+  section('server guard: repeated create does not leak rooms');
+  const { httpServer, manager } = createAppServer();
+  await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
+  const port = (httpServer.address() as AddressInfo).port;
+
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+  const messages: any[] = [];
+  ws.on('message', (raw) => messages.push(JSON.parse(raw.toString())));
+  await new Promise<void>((resolve, reject) => {
+    ws.on('open', () => resolve());
+    ws.on('error', reject);
+  });
+
+  const waitFor = (pred: () => boolean) =>
+    new Promise<void>((resolve) => {
+      const tick = () => (pred() ? resolve() : setTimeout(tick, 10));
+      tick();
+    });
+
+  ws.send(JSON.stringify({ t: 'create', name: 'Host' }));
+  await waitFor(() => messages.some((m) => m.t === 'joined'));
+  eq(manager.size(), 1, 'one room after first create');
+
+  // Second create on the same socket must be rejected, not leak a room.
+  ws.send(JSON.stringify({ t: 'create', name: 'Host' }));
+  await waitFor(() => messages.some((m) => m.t === 'error'));
+  const err = messages.find((m) => m.t === 'error');
+  eq(err.message, 'Already in a room.', 'second create rejected');
+  eq(manager.size(), 1, 'GUARD: still one room (no leak)');
+
+  // Disconnect cleans the room up.
+  ws.close();
+  await waitFor(() => manager.size() === 0);
+  eq(manager.size(), 0, 'room cleaned up on disconnect');
+
+  await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+}
+
+// ============================================================
+(async () => {
+  await integrationTests();
+  console.log(`\n${failed === 0 ? '✓ all green' : '✗ failures'}: ${passed} passed, ${failed} failed`);
+  if (failed > 0) process.exit(1);
+})();

@@ -9,6 +9,11 @@ export class RoomManager {
     return this.rooms.has(code);
   }
 
+  /** Number of live rooms (used to assert no room leak under abuse). */
+  size(): number {
+    return this.rooms.size;
+  }
+
   get(code: string): Room | undefined {
     return this.rooms.get(code);
   }
